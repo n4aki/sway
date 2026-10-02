@@ -6,7 +6,7 @@ const card=$("card"),photo=$("photo"),stamp=$("stamp"),choices=[...document.quer
 const labels={like:"好き",neutral:"普通",dislike:"嫌い"};
 let answers=[],busy=false,ready=false,filter="like",drag=null;
 function state(){return {completed:answers.length,total:photos.length,current:photos[answers.length]?.title??null,counts:Object.fromEntries(Object.keys(labels).map(k=>[k,answers.filter(a=>a===k).length]))};}
-function controls(){choices.forEach(b=>b.disabled=busy||!ready||answers.length===photos.length);$("undo").disabled=busy||!answers.length;$("show-results").disabled=busy||!answers.length;}
+function controls(){choices.forEach(b=>b.disabled=busy||!ready||answers.length===photos.length);$("undo").disabled=busy||!answers.length;$("show-results").disabled=busy||!answers.length;$("undo").title=answers.length?"直前の判定を取り消す":"1枚判定すると戻せます";$("show-results").title=answers.length?"判定済みの写真の集計を表示":"1枚判定すると結果を確認できます";}
 function render(){
  if(!photos.length){ready=false;controls();$("experience").hidden=true;$("catalog-error").hidden=false;return;}
  if(answers.length===photos.length){renderResults();return;}
