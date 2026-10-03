@@ -4,12 +4,13 @@ const catalogPhotos=catalog?.photos??[];
 // The last two entries are fifth photos from separate categories.
 const sessionPhotos=catalogPhotos.slice(0,100);
 let photos=[...sessionPhotos];
-function shufflePhotos(){
+function shufflePhotos(count=100){
  photos=[...sessionPhotos];
  for(let i=photos.length-1;i>0;i--){
   const j=Math.floor(Math.random()*(i+1));
   [photos[i],photos[j]]=[photos[j],photos[i]];
  }
+ photos=photos.slice(0,count);
 }
 const esc=value=>String(value).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
 const $=id=>document.getElementById(id);
@@ -20,6 +21,7 @@ function state(){return {completed:answers.length,total:photos.length,current:ph
 function controls(){choices.forEach(b=>b.disabled=busy||!ready||answers.length===photos.length);$("undo").disabled=busy||!answers.length;$("show-results").disabled=busy||!answers.length;$("undo").title=answers.length?"直前の判定を取り消す":"1枚判定すると戻せます";$("show-results").title=answers.length?"判定済みの写真の集計を表示":"1枚判定すると結果を確認できます";}
 function render(){
  clearDrag();
+ $("courses").hidden=true;updatePhotoTotal();
  if(!photos.length){ready=false;controls();$("experience").hidden=true;$("catalog-error").hidden=false;return;}
  if(answers.length===photos.length){renderResults();return;}
  $("experience").hidden=false;$("results").hidden=true;
@@ -93,12 +95,13 @@ $("resume").onclick=()=>{
  render();card.focus({preventScroll:true});window.scrollTo({top:0,behavior:"instant"});
 };
 function renderResults(){
+ $("courses").hidden=true;updatePhotoTotal();
  $("experience").hidden=true;$("results").hidden=false;
  const counts=state().counts;
  $("result-heading").textContent=sharedView?"共有された結果":answers.length<photos.length?"途中結果":"判定結果";
  $("result-progress").textContent=answers.length+" / "+photos.length+"枚を判定済み（未判定 "+(photos.length-answers.length)+"枚）";
  $("resume").hidden=answers.length>=photos.length;
- $("restart").textContent=sharedView?"最初から判定する →":"最初からやり直す ↻";
+ $("restart").textContent="コースを選び直す";
  $("share-status").textContent="";$("share-fallback").hidden=true;
  $("stats").innerHTML=Object.entries(labels).map(([k,v])=>'<div class="stat"><span>'+({like:"♡ ",neutral:"− ",dislike:"× "}[k])+v+'</span><strong>'+counts[k]+'<small>枚</small></strong></div>').join("");
  renderTagCharts();filter="like";renderGallery();$("result-heading").focus({preventScroll:true});window.scrollTo({top:0,behavior:"instant"});
@@ -109,10 +112,26 @@ function renderGallery(){
  $("gallery").innerHTML=selected.length?selected.map(p=>'<figure class="result-card"><a href="'+esc(p.source||p.url)+'" target="_blank" rel="noopener noreferrer"><img src="'+esc(p.url)+'" alt="'+esc(p.title)+'" loading="lazy"></a><figcaption>'+esc(p.title)+'<small>'+esc(p.category)+'</small></figcaption></figure>').join(""):'<p class="empty">「'+labels[filter]+'」に選んだ写真はありません。</p>';
 }
 document.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{filter=b.dataset.filter;renderGallery();});
-$("restart").onclick=()=>{answers=[];sharedView=false;shufflePhotos();history.replaceState(null,"",location.pathname+location.search);render();card.focus({preventScroll:true});window.scrollTo({top:0,behavior:"instant"});};
+function updatePhotoTotal(){document.querySelectorAll("[data-photo-total]").forEach(el=>el.textContent=photos.length);}
+function showCourses(){
+ clearDrag();ready=false;busy=false;answers=[];sharedView=false;controls();
+ $("experience").hidden=true;$("results").hidden=true;$("courses").hidden=false;
+ document.querySelectorAll("[data-course]").forEach(b=>b.disabled=sessionPhotos.length<Number(b.dataset.course));
+ if(!sessionPhotos.length)$("catalog-error").hidden=false;
+}
+function startCourse(count){
+ if(busy||![25,50,100].includes(count)||count>sessionPhotos.length)return false;
+ answers=[];sharedView=false;shufflePhotos(count);
+ history.replaceState(null,"",location.pathname+location.search);$("share-error").hidden=true;
+ render();card.focus({preventScroll:true});window.scrollTo({top:0,behavior:"instant"});return true;
+}
+document.querySelectorAll("[data-course]").forEach(b=>b.onclick=()=>startCourse(Number(b.dataset.course)));
+$("restart").onclick=()=>{
+ history.replaceState(null,"",location.pathname+location.search);showCourses();
+ $("course-heading").focus({preventScroll:true});window.scrollTo({top:0,behavior:"instant"});
+};
 document.body.classList.toggle("fashion",catalog?.kind==="fashion");
-document.querySelectorAll("[data-photo-total]").forEach(el=>el.textContent=photos.length);
-if(!loadSharedResult()){shufflePhotos();render();}
+if(!loadSharedResult())showCourses();
 
 // Include catalog identity so a future photo reorder cannot silently change results.
 function catalogKey(){
@@ -130,7 +149,7 @@ function loadSharedResult(){
  if(!location.hash?.startsWith("#result="))return false;
  const match=/^#result=([12])\.([a-f0-9]{8})\.([LND]+)(?:\.([0-9a-z]+(?:-[0-9a-z]+)*))?$/.exec(location.hash);
  const order=match?.[1]==="2"&&match[4]?match[4].split("-").map(n=>parseInt(n,36)):null;
- const validOrder=match?.[1]==="1"?!match[4]:order&&[sessionPhotos.length,catalogPhotos.length].includes(order.length)&&new Set(order).size===order.length&&order.every(n=>Number.isInteger(n)&&n>=0&&n<catalogPhotos.length);
+ const validOrder=match?.[1]==="1"?!match[4]:order&&[25,50,sessionPhotos.length,catalogPhotos.length].includes(order.length)&&new Set(order).size===order.length&&order.every(n=>Number.isInteger(n)&&n>=0&&n<catalogPhotos.length);
  if(!match||match[2]!==catalogKey()||match[3].length>(order?.length??catalogPhotos.length)||!validOrder){
   $("share-error").textContent="共有リンクを読み込めませんでした。リンクが不完全か、写真セットが変更されています。";$("share-error").hidden=false;return false;
  }
