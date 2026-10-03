@@ -1,8 +1,11 @@
 const catalog=window.PHOTO_CATALOG;
 const catalogPhotos=catalog?.photos??[];
-let photos=[...catalogPhotos];
+// Retain the original catalog for previously shared 102-photo results.
+// The last two entries are fifth photos from separate categories.
+const sessionPhotos=catalogPhotos.slice(0,100);
+let photos=[...sessionPhotos];
 function shufflePhotos(){
- photos=[...catalogPhotos];
+ photos=[...sessionPhotos];
  for(let i=photos.length-1;i>0;i--){
   const j=Math.floor(Math.random()*(i+1));
   [photos[i],photos[j]]=[photos[j],photos[i]];
@@ -120,8 +123,8 @@ function loadSharedResult(){
  if(!location.hash?.startsWith("#result="))return false;
  const match=/^#result=([12])\.([a-f0-9]{8})\.([LND]+)(?:\.([0-9a-z]+(?:-[0-9a-z]+)*))?$/.exec(location.hash);
  const order=match?.[1]==="2"&&match[4]?match[4].split("-").map(n=>parseInt(n,36)):null;
- const validOrder=match?.[1]==="1"?!match[4]:order&&order.length===catalogPhotos.length&&new Set(order).size===order.length&&order.every(n=>Number.isInteger(n)&&n>=0&&n<catalogPhotos.length);
- if(!match||match[2]!==catalogKey()||match[3].length>catalogPhotos.length||!validOrder){
+ const validOrder=match?.[1]==="1"?!match[4]:order&&[sessionPhotos.length,catalogPhotos.length].includes(order.length)&&new Set(order).size===order.length&&order.every(n=>Number.isInteger(n)&&n>=0&&n<catalogPhotos.length);
+ if(!match||match[2]!==catalogKey()||match[3].length>(order?.length??catalogPhotos.length)||!validOrder){
   $("share-error").textContent="共有リンクを読み込めませんでした。リンクが不完全か、写真セットが変更されています。";$("share-error").hidden=false;return false;
  }
  photos=order?order.map(i=>catalogPhotos[i]):[...catalogPhotos];
