@@ -8,6 +8,7 @@ let answers=[],busy=false,ready=false,filter="like",drag=null;
 function state(){return {completed:answers.length,total:photos.length,current:photos[answers.length]?.title??null,counts:Object.fromEntries(Object.keys(labels).map(k=>[k,answers.filter(a=>a===k).length]))};}
 function controls(){choices.forEach(b=>b.disabled=busy||!ready||answers.length===photos.length);$("undo").disabled=busy||!answers.length;$("show-results").disabled=busy||!answers.length;$("undo").title=answers.length?"直前の判定を取り消す":"1枚判定すると戻せます";$("show-results").title=answers.length?"判定済みの写真の集計を表示":"1枚判定すると結果を確認できます";}
 function render(){
+ clearDrag();
  if(!photos.length){ready=false;controls();$("experience").hidden=true;$("catalog-error").hidden=false;return;}
  if(answers.length===photos.length){renderResults();return;}
  $("experience").hidden=false;$("results").hidden=true;
@@ -25,19 +26,46 @@ function paint(kind,opacity=1){stamp.textContent=labels[kind];stamp.style.color=
 async function decide(kind){
  if(!Object.hasOwn(labels,kind))throw new Error("判定は like、neutral、dislike のいずれかです。");
  if(busy||!ready||$("experience").hidden||answers.length===photos.length) return false;
- busy=true;drag=null;controls();paint(kind);card.style.transition="transform .3s ease,opacity .3s ease";
+ busy=true;clearDrag();controls();paint(kind);
+ // Commit the dragged position before starting the exit transition.
+ void card.offsetWidth;
+ card.style.transition="transform .3s ease-out,opacity .3s ease-out";
  card.style.transform=kind==="like"?"translate(520px,30px) rotate(22deg)":kind==="dislike"?"translate(-520px,30px) rotate(-22deg)":"translate(0,550px) rotate(4deg)";card.style.opacity="0";
- await new Promise(r=>setTimeout(r,matchMedia("(prefers-reduced-motion: reduce)").matches?0:280));
+ await new Promise(r=>setTimeout(r,matchMedia("(prefers-reduced-motion: reduce)").matches?0:320));
  const title=photos[answers.length].title;answers.push(kind);busy=false;$("live").textContent=title+"："+labels[kind];render();return state();
 }
 choices.forEach(b=>b.addEventListener("click",()=>decide(b.dataset.choice)));
 $("undo").onclick=()=>{if(busy||!answers.length)return;answers.pop();render();};
 $("retry").onclick=()=>{const url=new URL(photos[answers.length].url,location.href);url.searchParams.set("retry",Date.now());photo.src=url.href;$("image-error").hidden=true;};
-function resetDrag(){drag=null;card.style.transition="transform .25s ease";card.style.transform="";stamp.style.opacity=0;}
-card.addEventListener("pointerdown",e=>{if(e.target.closest("a,button")||busy||!ready||e.button!==0)return;drag={id:e.pointerId,x:e.clientX,y:e.clientY,dx:0,dy:0};card.setPointerCapture(e.pointerId);card.style.transition="none";});
-card.addEventListener("pointermove",e=>{if(!drag||drag.id!==e.pointerId)return;drag.dx=e.clientX-drag.x;drag.dy=e.clientY-drag.y;card.style.transform="translate("+drag.dx+"px,"+Math.max(-35,drag.dy)+"px) rotate("+(drag.dx/20)+"deg)";const vertical=drag.dy>Math.abs(drag.dx);const kind=vertical?"neutral":drag.dx>0?"like":"dislike";paint(kind,Math.min(1,(vertical?drag.dy:Math.abs(drag.dx))/95));});
-card.addEventListener("pointerup",e=>{if(!drag||drag.id!==e.pointerId)return;const {dx,dy}=drag;const threshold=Math.min(85,card.clientWidth*.22);const kind=dy>Math.abs(dx)&&dy>threshold?"neutral":Math.abs(dx)>threshold?(dx>0?"like":"dislike"):null;resetDrag();if(kind)decide(kind);});
-card.addEventListener("pointercancel",resetDrag);card.addEventListener("lostpointercapture",()=>{if(drag)resetDrag();});
+function clearDrag(){const id=drag?.id;drag=null;if(id!==undefined&&card.hasPointerCapture(id))card.releasePointerCapture(id);}
+function resetDrag(){clearDrag();card.style.transition="transform .2s ease-out";card.style.transform="";stamp.style.opacity=0;}
+function trackDrag(e){
+ drag.dx=e.clientX-drag.x;drag.dy=e.clientY-drag.y;
+ drag.samples.push({x:e.clientX,y:e.clientY,t:e.timeStamp});
+ // Recent motion permits a short flick without treating a held card as a flick.
+ while(drag.samples.length>1&&drag.samples[0].t<e.timeStamp-100)drag.samples.shift();
+}
+card.addEventListener("pointerdown",e=>{
+ if(drag||e.isPrimary===false||e.target.closest("a,button")||busy||!ready||e.button!==0||$("experience").hidden)return;
+ drag={id:e.pointerId,x:e.clientX,y:e.clientY,dx:0,dy:0,samples:[{x:e.clientX,y:e.clientY,t:e.timeStamp}]};
+ card.setPointerCapture(e.pointerId);card.style.transition="none";
+});
+card.addEventListener("pointermove",e=>{
+ if(!drag||drag.id!==e.pointerId)return;trackDrag(e);
+ card.style.transform="translate("+drag.dx+"px,"+Math.max(-35,drag.dy)+"px) rotate("+(drag.dx/20)+"deg)";
+ const vertical=drag.dy>Math.abs(drag.dx);paint(vertical?"neutral":drag.dx>0?"like":"dislike",Math.min(1,(vertical?drag.dy:Math.abs(drag.dx))/80));
+});
+card.addEventListener("pointerup",e=>{
+ if(!drag||drag.id!==e.pointerId)return;trackDrag(e);
+ const {dx,dy,samples}=drag,first=samples[0],dt=e.timeStamp-first.t;
+ const vx=dt>0?(e.clientX-first.x)/dt:0,vy=dt>0?(e.clientY-first.y)/dt:0;
+ const threshold=Math.min(80,card.clientWidth*.2),vertical=dy>Math.abs(dx);
+ const distance=vertical?dy:Math.abs(dx),velocity=vertical?vy:vx*Math.sign(dx);
+ const qualifies=distance>=threshold||(distance>=28&&velocity>=.5);
+ const kind=qualifies?(vertical?"neutral":dx>0?"like":"dislike"):null;
+ if(kind)decide(kind);else resetDrag();
+});
+for(const event of ["pointercancel","lostpointercapture"])card.addEventListener(event,e=>{if(drag?.id===e.pointerId)resetDrag();});
 window.addEventListener("keydown",e=>{if($("instructions").open||$("experience").hidden||e.target.closest("button,a,input,textarea"))return;const kind={ArrowLeft:"dislike",ArrowDown:"neutral",ArrowRight:"like"}[e.key];if(kind){e.preventDefault();if(!drag)decide(kind);}});
 $("help").onclick=()=> $("instructions").showModal();$("close-help").onclick=$("start").onclick=()=> $("instructions").close();
 function showPartialResults(){
