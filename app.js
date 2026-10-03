@@ -4,7 +4,7 @@ const esc=value=>String(value).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','
 const $=id=>document.getElementById(id);
 const card=$("card"),photo=$("photo"),stamp=$("stamp"),choices=[...document.querySelectorAll("[data-choice]")];
 const labels={like:"好き",neutral:"普通",dislike:"嫌い"};
-let answers=[],busy=false,ready=false,filter="like",drag=null;
+let answers=[],busy=false,ready=false,filter="like",drag=null,sharedView=false;
 function state(){return {completed:answers.length,total:photos.length,current:photos[answers.length]?.title??null,counts:Object.fromEntries(Object.keys(labels).map(k=>[k,answers.filter(a=>a===k).length]))};}
 function controls(){choices.forEach(b=>b.disabled=busy||!ready||answers.length===photos.length);$("undo").disabled=busy||!answers.length;$("show-results").disabled=busy||!answers.length;$("undo").title=answers.length?"直前の判定を取り消す":"1枚判定すると戻せます";$("show-results").title=answers.length?"判定済みの写真の集計を表示":"1枚判定すると結果を確認できます";}
 function render(){
@@ -77,9 +77,11 @@ $("resume").onclick=()=>{if(busy||answers.length>=photos.length)return;render();
 function renderResults(){
  $("experience").hidden=true;$("results").hidden=false;
  const counts=state().counts;
- $("result-heading").textContent=answers.length<photos.length?"途中結果":"判定結果";
+ $("result-heading").textContent=sharedView?"共有された結果":answers.length<photos.length?"途中結果":"判定結果";
  $("result-progress").textContent=answers.length+" / "+photos.length+"枚を判定済み（未判定 "+(photos.length-answers.length)+"枚）";
- $("resume").hidden=answers.length>=photos.length;
+ $("resume").hidden=sharedView||answers.length>=photos.length;
+ $("restart").textContent=sharedView?"自分も判定する →":"最初からやり直す ↻";
+ $("share-status").textContent="";$("share-fallback").hidden=true;
  $("stats").innerHTML=Object.entries(labels).map(([k,v])=>'<div class="stat"><span>'+({like:"♡ ",neutral:"− ",dislike:"× "}[k])+v+'</span><strong>'+counts[k]+'<small>枚</small></strong></div>').join("");
  renderTagCharts();filter="like";renderGallery();$("result-heading").focus({preventScroll:true});window.scrollTo({top:0,behavior:"instant"});
 }
@@ -89,10 +91,42 @@ function renderGallery(){
  $("gallery").innerHTML=selected.length?selected.map(p=>'<figure class="result-card"><a href="'+esc(p.source||p.url)+'" target="_blank" rel="noopener noreferrer"><img src="'+esc(p.url)+'" alt="'+esc(p.title)+'" loading="lazy"></a><figcaption>'+esc(p.title)+'<small>'+esc(p.category)+'</small></figcaption></figure>').join(""):'<p class="empty">「'+labels[filter]+'」に選んだ写真はありません。</p>';
 }
 document.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{filter=b.dataset.filter;renderGallery();});
-$("restart").onclick=()=>{answers=[];render();card.focus({preventScroll:true});window.scrollTo({top:0,behavior:"instant"});};
+$("restart").onclick=()=>{answers=[];sharedView=false;history.replaceState(null,"",location.pathname+location.search);render();card.focus({preventScroll:true});window.scrollTo({top:0,behavior:"instant"});};
 document.body.classList.toggle("fashion",catalog?.kind==="fashion");
 document.querySelectorAll("[data-photo-total]").forEach(el=>el.textContent=photos.length);
-render();
+if(!loadSharedResult())render();
+
+// Include catalog identity so a future photo reorder cannot silently change results.
+function catalogKey(){
+ let hash=2166136261;
+ for(const char of JSON.stringify(photos.map(p=>[p.url,p.category]))){hash=Math.imul(hash^char.charCodeAt(0),16777619);}
+ return (hash>>>0).toString(16).padStart(8,"0");
+}
+function resultLink(){
+ const ratings=answers.map(k=>({like:"L",neutral:"N",dislike:"D"}[k])).join("");
+ // Use the public host even when sharing from the owner-only Sites preview.
+ return "https://n4aki.github.io/sway/#result=1."+catalogKey()+"."+ratings;
+}
+function loadSharedResult(){
+ if(!location.hash?.startsWith("#result="))return false;
+ const match=/^#result=1\.([a-f0-9]{8})\.([LND]+)$/.exec(location.hash);
+ if(!match||match[1]!==catalogKey()||match[2].length>photos.length){
+  $("share-error").textContent="共有リンクを読み込めませんでした。リンクが不完全か、写真セットが変更されています。";$("share-error").hidden=false;return false;
+ }
+ answers=[...match[2]].map(c=>({L:"like",N:"neutral",D:"dislike"}[c]));sharedView=true;renderResults();return true;
+}
+async function copyResultLink(){
+ const url=resultLink();
+ try{await navigator.clipboard.writeText(url);$("share-status").textContent="リンクをコピーしました";$("share-fallback").hidden=true;}
+ catch{ $("share-fallback").hidden=false;$("share-url").value=url;$("share-url").focus();$("share-url").select();$("share-status").textContent="下のリンクを選択してコピーしてください"; }
+}
+$("copy-result").onclick=copyResultLink;
+$("share-result").onclick=async()=>{
+ if(!navigator.share){await copyResultLink();return;}
+ const counts=state().counts;
+ try{await navigator.share({title:"sway — 判定結果",text:answers.length+"枚を判定：好き "+counts.like+"枚 / 普通 "+counts.neutral+"枚 / 嫌い "+counts.dislike+"枚",url:resultLink()});$("share-status").textContent="共有しました";}
+ catch(error){if(error.name!=="AbortError")await copyResultLink();}
+};
 
 if(document.modelContext?.registerTool){
  const tools=[
