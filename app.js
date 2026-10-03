@@ -1,5 +1,13 @@
 const catalog=window.PHOTO_CATALOG;
-const photos=catalog?.photos??[];
+const catalogPhotos=catalog?.photos??[];
+let photos=[...catalogPhotos];
+function shufflePhotos(){
+ photos=[...catalogPhotos];
+ for(let i=photos.length-1;i>0;i--){
+  const j=Math.floor(Math.random()*(i+1));
+  [photos[i],photos[j]]=[photos[j],photos[i]];
+ }
+}
 const esc=value=>String(value).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
 const $=id=>document.getElementById(id);
 const card=$("card"),photo=$("photo"),stamp=$("stamp"),choices=[...document.querySelectorAll("[data-choice]")];
@@ -91,29 +99,33 @@ function renderGallery(){
  $("gallery").innerHTML=selected.length?selected.map(p=>'<figure class="result-card"><a href="'+esc(p.source||p.url)+'" target="_blank" rel="noopener noreferrer"><img src="'+esc(p.url)+'" alt="'+esc(p.title)+'" loading="lazy"></a><figcaption>'+esc(p.title)+'<small>'+esc(p.category)+'</small></figcaption></figure>').join(""):'<p class="empty">「'+labels[filter]+'」に選んだ写真はありません。</p>';
 }
 document.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{filter=b.dataset.filter;renderGallery();});
-$("restart").onclick=()=>{answers=[];sharedView=false;history.replaceState(null,"",location.pathname+location.search);render();card.focus({preventScroll:true});window.scrollTo({top:0,behavior:"instant"});};
+$("restart").onclick=()=>{answers=[];sharedView=false;shufflePhotos();history.replaceState(null,"",location.pathname+location.search);render();card.focus({preventScroll:true});window.scrollTo({top:0,behavior:"instant"});};
 document.body.classList.toggle("fashion",catalog?.kind==="fashion");
 document.querySelectorAll("[data-photo-total]").forEach(el=>el.textContent=photos.length);
-if(!loadSharedResult())render();
+if(!loadSharedResult()){shufflePhotos();render();}
 
 // Include catalog identity so a future photo reorder cannot silently change results.
 function catalogKey(){
  let hash=2166136261;
- for(const char of JSON.stringify(photos.map(p=>[p.url,p.category]))){hash=Math.imul(hash^char.charCodeAt(0),16777619);}
+ for(const char of JSON.stringify(catalogPhotos.map(p=>[p.url,p.category]))){hash=Math.imul(hash^char.charCodeAt(0),16777619);}
  return (hash>>>0).toString(16).padStart(8,"0");
 }
 function resultLink(){
  const ratings=answers.map(k=>({like:"L",neutral:"N",dislike:"D"}[k])).join("");
+ const order=photos.map(p=>catalogPhotos.indexOf(p).toString(36)).join("-");
  // Use the public host even when sharing from the owner-only Sites preview.
- return "https://n4aki.github.io/sway/#result=1."+catalogKey()+"."+ratings;
+ return "https://n4aki.github.io/sway/#result=2."+catalogKey()+"."+ratings+"."+order;
 }
 function loadSharedResult(){
  if(!location.hash?.startsWith("#result="))return false;
- const match=/^#result=1\.([a-f0-9]{8})\.([LND]+)$/.exec(location.hash);
- if(!match||match[1]!==catalogKey()||match[2].length>photos.length){
+ const match=/^#result=([12])\.([a-f0-9]{8})\.([LND]+)(?:\.([0-9a-z]+(?:-[0-9a-z]+)*))?$/.exec(location.hash);
+ const order=match?.[1]==="2"&&match[4]?match[4].split("-").map(n=>parseInt(n,36)):null;
+ const validOrder=match?.[1]==="1"?!match[4]:order&&order.length===catalogPhotos.length&&new Set(order).size===order.length&&order.every(n=>Number.isInteger(n)&&n>=0&&n<catalogPhotos.length);
+ if(!match||match[2]!==catalogKey()||match[3].length>catalogPhotos.length||!validOrder){
   $("share-error").textContent="共有リンクを読み込めませんでした。リンクが不完全か、写真セットが変更されています。";$("share-error").hidden=false;return false;
  }
- answers=[...match[2]].map(c=>({L:"like",N:"neutral",D:"dislike"}[c]));sharedView=true;renderResults();return true;
+ photos=order?order.map(i=>catalogPhotos[i]):[...catalogPhotos];
+ answers=[...match[3]].map(c=>({L:"like",N:"neutral",D:"dislike"}[c]));sharedView=true;renderResults();return true;
 }
 async function copyResultLink(){
  const url=resultLink();
