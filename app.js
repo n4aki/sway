@@ -84,14 +84,21 @@ function showPartialResults(){
  resetDrag();renderResults();return state();
 }
 $("show-results").onclick=showPartialResults;
-$("resume").onclick=()=>{if(busy||answers.length>=photos.length)return;render();card.focus({preventScroll:true});window.scrollTo({top:0,behavior:"instant"});};
+$("resume").onclick=()=>{
+ if(busy||answers.length>=photos.length)return;
+ if(sharedView){
+  sharedView=false;
+  history.replaceState(null,"",location.pathname+location.search);
+ }
+ render();card.focus({preventScroll:true});window.scrollTo({top:0,behavior:"instant"});
+};
 function renderResults(){
  $("experience").hidden=true;$("results").hidden=false;
  const counts=state().counts;
  $("result-heading").textContent=sharedView?"共有された結果":answers.length<photos.length?"途中結果":"判定結果";
  $("result-progress").textContent=answers.length+" / "+photos.length+"枚を判定済み（未判定 "+(photos.length-answers.length)+"枚）";
- $("resume").hidden=sharedView||answers.length>=photos.length;
- $("restart").textContent=sharedView?"自分も判定する →":"最初からやり直す ↻";
+ $("resume").hidden=answers.length>=photos.length;
+ $("restart").textContent=sharedView?"最初から判定する →":"最初からやり直す ↻";
  $("share-status").textContent="";$("share-fallback").hidden=true;
  $("stats").innerHTML=Object.entries(labels).map(([k,v])=>'<div class="stat"><span>'+({like:"♡ ",neutral:"− ",dislike:"× "}[k])+v+'</span><strong>'+counts[k]+'<small>枚</small></strong></div>').join("");
  renderTagCharts();filter="like";renderGallery();$("result-heading").focus({preventScroll:true});window.scrollTo({top:0,behavior:"instant"});
